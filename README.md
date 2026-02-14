@@ -89,6 +89,16 @@ export SOLANA_RPC_URL=https://your-rpc.example.com
 solscan <ADDRESS> --tokens
 ```
 
+## Support
+
+If solscan-cli is useful to you:
+
+**SOL**: `EXEDJvuAaYt9yN5mwZRPdCP19tYuF6LWztnu6qpbepTq`
+
+**ETH/Base**: `0x0282BdE2f138babC6ABa3bb010121112cC1d7eDa`
+
+Or [sponsor on GitHub](https://github.com/sponsors/contactn8n410-del).
+
 ## License
 
 MIT

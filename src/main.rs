@@ -27,6 +27,10 @@ fn main() {
         eprintln!("  solscan EXEDJvuA...epTq --tokens");
         eprintln!("  solscan EXEDJvuA...epTq --watch --interval 10");
         eprintln!("  solscan EXEDJvuA...epTq --watch --json | jq '.change'");
+        eprintln!("  solscan x --power-map              # Who controls Solana DeFi");
+        eprintln!("  solscan x --scan-defi              # Audit top 15 protocols");
+        eprintln!("  solscan x --guardian                # Autonomous monitoring daemon");
+        eprintln!("\n💰 Tip: EXEDJvuAaYt9yN5mwZRPdCP19tYuF6LWztnu6qpbepTq (SOL)");
         std::process::exit(1);
     }
 
