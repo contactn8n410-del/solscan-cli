@@ -1,4 +1,5 @@
 use std::env;
+mod analyze;
 
 fn rpc_url() -> String {
     env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".to_string())
@@ -8,16 +9,19 @@ const LAMPORTS_PER_SOL: f64 = 1_000_000_000.0;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: solscan <wallet_address> [--tokens] [--history] [--json]");
+        eprintln!("Usage: solscan <wallet_address> [OPTIONS]");
         eprintln!("\nScan any Solana wallet from the command line.");
         eprintln!("\nOptions:");
-        eprintln!("  --tokens   Show all token accounts and balances");
-        eprintln!("  --history  Show recent transaction history");
-        eprintln!("  --json     Output as JSON");
-        eprintln!("  --defi     Show DeFi positions (Raydium, Orca, Marinade)");
+        eprintln!("  --tokens          Show all token accounts and balances");
+        eprintln!("  --history         Show recent transaction history");
+        eprintln!("  --json            Output as JSON");
+        eprintln!("  --defi            Show DeFi positions (mSOL, jitoSOL)");
+        eprintln!("  --watch           Live monitoring mode (poll for changes)");
+        eprintln!("  --interval <N>    Poll interval in seconds (default: 5)");
         eprintln!("\nExamples:");
-        eprintln!("  solscan So11111111111111111111111111111111111111112");
-        eprintln!("  solscan EXEDJvuAaYt9yN5mwZRPdCP19tYuF6LWztnu6qpbepTq --tokens");
+        eprintln!("  solscan EXEDJvuA...epTq --tokens");
+        eprintln!("  solscan EXEDJvuA...epTq --watch --interval 10");
+        eprintln!("  solscan EXEDJvuA...epTq --watch --json | jq '.change'");
         std::process::exit(1);
     }
 
@@ -26,10 +30,34 @@ fn main() {
     let show_history = args.contains(&"--history".to_string());
     let output_json = args.contains(&"--json".to_string());
     let show_defi = args.contains(&"--defi".to_string());
+    let watch_mode = args.contains(&"--watch".to_string());
+    let analyze_mode = args.contains(&"--analyze".to_string());
+    let watch_interval: u64 = args.iter()
+        .position(|a| a == "--interval")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+    // Collect extra wallets for analyze mode
+    let extra_wallets: Vec<String> = if analyze_mode {
+        args.iter().skip(2)
+            .filter(|a| !a.starts_with("--") && a.len() > 30)
+            .cloned().collect()
+    } else { vec![] };
+
     rt.block_on(async {
-        if let Err(e) = scan_wallet(wallet, show_tokens, show_history, show_defi, output_json).await {
+        if analyze_mode {
+            if let Err(e) = run_analyze(wallet, &extra_wallets).await {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        } else if watch_mode {
+            if let Err(e) = watch_wallet(wallet, watch_interval, output_json).await {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        } else if let Err(e) = scan_wallet(wallet, show_tokens, show_history, show_defi, output_json).await {
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }
@@ -142,6 +170,89 @@ async fn scan_wallet(
     }
 
     Ok(())
+}
+
+// === Analyze Mode ===
+
+async fn run_analyze(primary: &str, others: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let mut graph = analyze::WalletGraph::new();
+
+    let mut all_wallets = vec![primary.to_string()];
+    all_wallets.extend(others.iter().cloned());
+
+    for wallet in &all_wallets {
+        eprint!("  Scanning {}...{} ", &wallet[..8], &wallet[wallet.len()-4..]);
+        let balance = get_sol_balance(&client, wallet).await.unwrap_or(0.0);
+        let tokens = get_token_accounts(&client, wallet).await.unwrap_or_default();
+        let mints: Vec<String> = tokens.iter().map(|t| t.mint.clone()).collect();
+        eprintln!("({:.4} SOL, {} tokens)", balance, mints.len());
+        graph.add_wallet(wallet.clone(), balance, mints);
+        // Rate limit courtesy
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+
+    analyze::print_analysis(&graph);
+    Ok(())
+}
+
+// === Watch Mode ===
+
+async fn watch_wallet(
+    wallet: &str,
+    interval_secs: u64,
+    json_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let mut last_balance: f64 = -1.0;
+    let mut last_sig = String::new();
+    let mut iteration = 0u64;
+
+    if !json_output {
+        println!("👁️  Watching wallet: {}...{}", &wallet[..8], &wallet[wallet.len()-8..]);
+        println!("    Polling every {}s — Ctrl+C to stop\n", interval_secs);
+    }
+
+    loop {
+        let balance = get_sol_balance(&client, wallet).await.unwrap_or(-1.0);
+        let sigs = get_recent_signatures(&client, wallet, 1).await.unwrap_or_default();
+        let newest_sig = sigs.first().map(|s| s.signature.clone()).unwrap_or_default();
+
+        let balance_changed = last_balance >= 0.0 && (balance - last_balance).abs() > 0.000000001;
+        let new_tx = !newest_sig.is_empty() && newest_sig != last_sig && !last_sig.is_empty();
+
+        if iteration == 0 || balance_changed || new_tx {
+            let now = chrono::Local::now().format("%H:%M:%S").to_string();
+            if json_output {
+                let event = serde_json::json!({
+                    "time": now,
+                    "balance": balance,
+                    "change": if balance_changed { Some(balance - last_balance) } else { None },
+                    "new_tx": if new_tx { Some(&newest_sig) } else { None },
+                });
+                println!("{}", event);
+            } else {
+                if balance_changed {
+                    let diff = balance - last_balance;
+                    let arrow = if diff > 0.0 { "📈" } else { "📉" };
+                    println!("[{}] {} SOL: {:.9} ({}{:.9})",
+                        now, arrow, balance,
+                        if diff > 0.0 { "+" } else { "" }, diff);
+                } else if new_tx {
+                    println!("[{}] 🔔 New TX: {}...{}", now,
+                        &newest_sig[..16], &newest_sig[newest_sig.len()-8..]);
+                } else if iteration == 0 {
+                    println!("[{}] ✅ SOL: {:.9}", now, balance);
+                }
+            }
+        }
+
+        last_balance = balance;
+        if !newest_sig.is_empty() { last_sig = newest_sig; }
+        iteration += 1;
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(interval_secs)).await;
+    }
 }
 
 // === RPC Helpers ===
