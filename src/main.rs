@@ -48,21 +48,45 @@ async fn scan_wallet(
     // 1. Get SOL balance
     let balance = get_sol_balance(&client, wallet).await?;
 
-    if !output_json {
-        println!("╔══════════════════════════════════════════════════════════════╗");
-        println!("║  🔍 Solana Wallet Scanner                                   ║");
-        println!("╠══════════════════════════════════════════════════════════════╣");
-        println!("║  Address: {}...{}", &wallet[..8], &wallet[wallet.len()-8..]);
-        println!("║  SOL Balance: {:.6} SOL", balance);
-        println!("╚══════════════════════════════════════════════════════════════╝");
+    // Collect data
+    let tokens = if show_tokens || output_json { get_token_accounts(&client, wallet).await.unwrap_or_default() } else { vec![] };
+    let signatures = if show_history || output_json { get_recent_signatures(&client, wallet, 10).await.unwrap_or_default() } else { vec![] };
+
+    if output_json {
+        let mut json = serde_json::json!({
+            "address": wallet,
+            "sol_balance": balance,
+        });
+        if show_tokens || true {
+            json["tokens"] = serde_json::json!(tokens.iter().map(|t| serde_json::json!({
+                "mint": t.mint,
+                "balance": t.ui_amount,
+                "decimals": t.decimals
+            })).collect::<Vec<_>>());
+        }
+        if show_history {
+            json["transactions"] = serde_json::json!(signatures.iter().map(|s| serde_json::json!({
+                "signature": s.signature,
+                "slot": s.slot,
+                "error": s.err,
+                "time": s.block_time_str()
+            })).collect::<Vec<_>>());
+        }
+        println!("{}", serde_json::to_string_pretty(&json)?);
+        return Ok(());
     }
 
-    // 2. Get token accounts
-    if show_tokens || output_json {
+    // Pretty output
+    println!("╔══════════════════════════════════════════════════════════════╗");
+    println!("║  🔍 Solana Wallet Scanner                                   ║");
+    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("║  Address: {}...{}", &wallet[..8], &wallet[wallet.len()-8..]);
+    println!("║  SOL Balance: {:.6} SOL", balance);
+    println!("╚══════════════════════════════════════════════════════════════╝");
+
+    if show_tokens {
         println!("\n📦 Token Accounts:");
         println!("─────────────────────────────────────────────────");
-
-        let tokens = get_token_accounts(&client, wallet).await?;
         if tokens.is_empty() {
             println!("  No token accounts found.");
         } else {
@@ -81,12 +105,9 @@ async fn scan_wallet(
         }
     }
 
-    // 3. Recent transactions
     if show_history {
         println!("\n📜 Recent Transactions (last 10):");
         println!("─────────────────────────────────────────────────");
-
-        let signatures = get_recent_signatures(&client, wallet, 10).await?;
         if signatures.is_empty() {
             println!("  No recent transactions.");
         } else {
@@ -104,17 +125,11 @@ async fn scan_wallet(
         }
     }
 
-    // 4. DeFi positions
     if show_defi {
         println!("\n🏦 DeFi Positions:");
         println!("─────────────────────────────────────────────────");
-        println!("  Scanning Raydium, Orca, Marinade...");
-
-        // Check for staked SOL (Marinade mSOL)
-        let tokens = get_token_accounts(&client, wallet).await?;
         let msol_mint = "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So";
         let jitosol_mint = "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn";
-
         for token in &tokens {
             if token.mint == msol_mint {
                 println!("  🌊 Marinade mSOL: {} mSOL", token.ui_amount);
