@@ -1,41 +1,62 @@
-# 🔍 solscan-cli
+# solscan-cli 🔍
 
-Scan any Solana wallet from your terminal. Balances, tokens, transactions, DeFi positions — one command.
+**Scan any Solana wallet from the command line.**
+
+A fast, lightweight Rust CLI that queries Solana directly via JSON-RPC — no SDK dependencies, no API keys, no bloat.
+
+## Features
+
+- ✅ **SOL balance** — instant lookup
+- ✅ **All tokens** — SPL + Token-2022 (pump.fun tokens included)
+- ✅ **Transaction history** — recent signatures with status
+- ✅ **DeFi positions** — detects mSOL, jitoSOL, and liquid staking
+- ✅ **JSON output** — pipe into jq, scripts, dashboards
+- ✅ **Tiny binary** — minimal deps (tokio + reqwest + serde_json)
 
 ## Install
 
 ```bash
-cargo install solscan-cli
+cargo install --git https://github.com/contactn8n410-del/solscan-cli
+```
+
+Or build from source:
+
+```bash
+git clone https://github.com/contactn8n410-del/solscan-cli
+cd solscan-cli
+cargo build --release
 ```
 
 ## Usage
 
 ```bash
-# Basic scan — SOL balance
-solscan <wallet_address>
+# Basic — show SOL balance
+solscan <WALLET_ADDRESS>
 
-# Show all token holdings
-solscan <wallet_address> --tokens
+# Show all token accounts
+solscan <WALLET_ADDRESS> --tokens
 
-# Show recent transaction history
-solscan <wallet_address> --history
+# Show recent transactions
+solscan <WALLET_ADDRESS> --history
 
-# Show DeFi positions (Marinade, Jito, Raydium)
-solscan <wallet_address> --defi
+# Show DeFi positions
+solscan <WALLET_ADDRESS> --defi
+
+# JSON output (for scripting)
+solscan <WALLET_ADDRESS> --tokens --json
 
 # Everything at once
-solscan <wallet_address> --tokens --history --defi
+solscan <WALLET_ADDRESS> --tokens --history --defi
 ```
 
 ## Example
 
 ```
 $ solscan EXEDJvuAaYt9yN5mwZRPdCP19tYuF6LWztnu6qpbepTq --tokens
-
 ╔══════════════════════════════════════════════════════════════╗
 ║  🔍 Solana Wallet Scanner                                   ║
 ╠══════════════════════════════════════════════════════════════╣
-║  Address: EXEDJvuA...u6qpbepTq
+║  Address: EXEDJvuA...6qpbepTq
 ║  SOL Balance: 0.003254 SOL
 ╚══════════════════════════════════════════════════════════════╝
 
@@ -43,33 +64,30 @@ $ solscan EXEDJvuAaYt9yN5mwZRPdCP19tYuF6LWztnu6qpbepTq --tokens
 ─────────────────────────────────────────────────
        Balance    Decimals  Mint
        ───────    ────────  ────
-  900000000.0           6  C9vx1mu1...xCrzVY
-       6076.0           6  EoP9nKZM...Vpump
-        510.0           6  9S8edqWx...Hpump
+    6076.10756           6  EoP9nKZM...pump
+     900000000           6  C9vx1mu1...rzVY
+    510.286342           6  9S8edqWx...pump
 
   Total token accounts: 3
 ```
 
-## Features
-
-- ✅ SOL balance
-- ✅ SPL Token accounts (Token + Token-2022)
-- ✅ Recent transaction history with status
-- ✅ DeFi position detection (mSOL, jitoSOL)
-- 🔜 Full DeFi scanning (Raydium LP, Orca positions)
-- 🔜 Token price lookup via Jupiter
-- 🔜 Portfolio value in USD
-- 🔜 Export to CSV/JSON
-
 ## Why?
 
-Every Solana dev lives in the terminal. But to check a wallet, you open a browser, navigate to Solscan or Explorer, paste the address... 
+Existing tools either:
+- Require API keys (Helius, QuickNode)
+- Are web-only (solscan.io, solana.fm)
+- Need the full Solana SDK (~100+ deps)
 
-`solscan` brings wallet inspection to where you already are.
+**solscan-cli** talks directly to public RPC endpoints. No keys. No accounts. Just `cargo install` and go.
 
-## Support
+## Custom RPC
 
-**Solana:** `EXEDJvuAaYt9yN5mwZRPdCP19tYuF6LWztnu6qpbepTq`
+Set `SOLANA_RPC_URL` environment variable to use your own endpoint:
+
+```bash
+export SOLANA_RPC_URL=https://your-rpc.example.com
+solscan <ADDRESS> --tokens
+```
 
 ## License
 

@@ -1,6 +1,8 @@
 use std::env;
 
-const RPC_URL: &str = "https://api.mainnet-beta.solana.com";
+fn rpc_url() -> String {
+    env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".to_string())
+}
 const LAMPORTS_PER_SOL: f64 = 1_000_000_000.0;
 
 fn main() {
@@ -142,7 +144,7 @@ async fn rpc_call(
     });
 
     let resp = client
-        .post(RPC_URL)
+        .post(&rpc_url())
         .json(&body)
         .send()
         .await?
@@ -160,7 +162,7 @@ async fn get_sol_balance(
     client: &reqwest::Client,
     wallet: &str,
 ) -> Result<f64, Box<dyn std::error::Error>> {
-    let result = rpc_call(client, "getBalance", serde_json::json!([wallet])).await?;
+    let result = rpc_call(client, "getBalance", serde_json::json!([wallet, {"commitment": "confirmed"}])).await?;
     let lamports = result["value"].as_u64().unwrap_or(0);
     Ok(lamports as f64 / LAMPORTS_PER_SOL)
 }
