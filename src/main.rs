@@ -1,5 +1,8 @@
 use std::env;
 mod analyze;
+mod web;
+mod audit;
+mod scanner;
 
 fn rpc_url() -> String {
     env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".to_string())
@@ -32,6 +35,14 @@ fn main() {
     let show_defi = args.contains(&"--defi".to_string());
     let watch_mode = args.contains(&"--watch".to_string());
     let analyze_mode = args.contains(&"--analyze".to_string());
+    let web_mode = args.contains(&"--web".to_string());
+    let audit_mode = args.contains(&"--audit".to_string());
+    let scan_all = args.contains(&"--scan-defi".to_string());
+    let web_depth: usize = args.iter()
+        .position(|a| a == "--depth")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
     let watch_interval: u64 = args.iter()
         .position(|a| a == "--interval")
         .and_then(|i| args.get(i + 1))
@@ -47,7 +58,44 @@ fn main() {
     } else { vec![] };
 
     rt.block_on(async {
-        if analyze_mode {
+        if scan_all {
+            let results = scanner::scan_all(&rpc_url()).await;
+            if output_json {
+                let json: Vec<_> = results.iter().map(|(name, r)| serde_json::json!({
+                    "name": name, "program_id": r.program_id,
+                    "upgradeable": r.is_upgradeable, "risk_score": r.risk_score,
+                    "warnings": r.warnings,
+                })).collect();
+                println!("{}", serde_json::to_string_pretty(&json).unwrap());
+            } else {
+                scanner::print_report(&results);
+            }
+        } else if audit_mode {
+            let auditor = audit::ContractAudit::new(rpc_url());
+            match auditor.audit(wallet).await {
+                Ok(result) => {
+                    if output_json {
+                        println!("{}", serde_json::json!({
+                            "program_id": result.program_id,
+                            "executable": result.is_executable,
+                            "upgradeable": result.is_upgradeable,
+                            "owner": result.owner,
+                            "data_size": result.data_size,
+                            "risk_score": result.risk_score,
+                            "warnings": result.warnings,
+                        }));
+                    } else {
+                        audit::print_audit(&result);
+                    }
+                }
+                Err(e) => { eprintln!("Audit error: {}", e); std::process::exit(1); }
+            }
+        } else if web_mode {
+            if let Err(e) = run_web(wallet, web_depth, output_json).await {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        } else if analyze_mode {
             if let Err(e) = run_analyze(wallet, &extra_wallets).await {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
@@ -169,6 +217,27 @@ async fn scan_wallet(
         println!("  (Full DeFi position scanning coming in v0.2)");
     }
 
+    Ok(())
+}
+
+// === Web Crawl Mode ===
+
+async fn run_web(wallet: &str, max_depth: usize, json_output: bool) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🕸️  SolWeb — Crawling from {}...{} (depth: {})", &wallet[..8], &wallet[wallet.len()-4..], max_depth);
+    let mut spider = web::SolWeb::new(rpc_url(), max_depth);
+    spider.crawl(wallet).await?;
+    
+    if json_output {
+        let out = serde_json::json!({
+            "wallets": spider.wallet_tokens.len(),
+            "tokens": spider.token_holders.len(),
+            "wallet_tokens": spider.wallet_tokens,
+            "token_holders": spider.token_holders,
+        });
+        println!("{}", serde_json::to_string_pretty(&out)?);
+    } else {
+        spider.print_web();
+    }
     Ok(())
 }
 
