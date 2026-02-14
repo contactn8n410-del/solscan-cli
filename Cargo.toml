@@ -1,0 +1,18 @@
+[package]
+name = "solscan-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Scan any Solana wallet from the command line — balances, tokens, history, DeFi positions"
+license = "MIT"
+repository = "https://github.com/contactn8n410-del/solscan-cli"
+keywords = ["solana", "wallet", "scanner", "defi", "cli"]
+categories = ["command-line-utilities", "cryptography::cryptocurrencies"]
+
+[[bin]]
+name = "solscan"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+serde_json = "1"
