@@ -3,6 +3,7 @@ mod analyze;
 mod web;
 mod audit;
 mod scanner;
+mod authority;
 
 fn rpc_url() -> String {
     env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".to_string())
@@ -38,6 +39,7 @@ fn main() {
     let web_mode = args.contains(&"--web".to_string());
     let audit_mode = args.contains(&"--audit".to_string());
     let scan_all = args.contains(&"--scan-defi".to_string());
+    let power_map = args.contains(&"--power-map".to_string());
     let web_depth: usize = args.iter()
         .position(|a| a == "--depth")
         .and_then(|i| args.get(i + 1))
@@ -58,7 +60,22 @@ fn main() {
     } else { vec![] };
 
     rt.block_on(async {
-        if scan_all {
+        if power_map {
+            let results = authority::map_all_authorities(&rpc_url()).await;
+            if output_json {
+                let json: Vec<_> = results.iter().map(|r| serde_json::json!({
+                    "name": r.program_name,
+                    "program_id": r.program_id,
+                    "upgrade_authority": r.upgrade_authority,
+                    "programdata": r.programdata_account,
+                    "authority_balance_sol": r.authority_sol_balance,
+                    "authority_tx_count": r.authority_tx_count,
+                })).collect();
+                println!("{}", serde_json::to_string_pretty(&json).unwrap());
+            } else {
+                authority::print_power_map(&results);
+            }
+        } else if scan_all {
             let results = scanner::scan_all(&rpc_url()).await;
             if output_json {
                 let json: Vec<_> = results.iter().map(|(name, r)| serde_json::json!({
