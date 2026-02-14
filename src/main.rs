@@ -4,6 +4,7 @@ mod web;
 mod audit;
 mod scanner;
 mod authority;
+mod daemon;
 
 fn rpc_url() -> String {
     env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".to_string())
@@ -40,6 +41,12 @@ fn main() {
     let audit_mode = args.contains(&"--audit".to_string());
     let scan_all = args.contains(&"--scan-defi".to_string());
     let power_map = args.contains(&"--power-map".to_string());
+    let guardian_mode = args.contains(&"--guardian".to_string());
+    let guardian_interval: u64 = args.iter()
+        .position(|a| a == "--every")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(300);
     let web_depth: usize = args.iter()
         .position(|a| a == "--depth")
         .and_then(|i| args.get(i + 1))
@@ -60,7 +67,9 @@ fn main() {
     } else { vec![] };
 
     rt.block_on(async {
-        if power_map {
+        if guardian_mode {
+            daemon::run_daemon(&rpc_url(), guardian_interval, output_json).await;
+        } else if power_map {
             let results = authority::map_all_authorities(&rpc_url()).await;
             if output_json {
                 let json: Vec<_> = results.iter().map(|r| serde_json::json!({
